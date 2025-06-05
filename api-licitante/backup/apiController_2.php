@@ -1,0 +1,200 @@
+<?php
+class apiController extends controller {
+
+	public function index(){
+
+		if((!isset ($_SESSION['tbLogin']) == true) and (!isset ($_SESSION['tb_id']) == true)){
+			unset($_SESSION['tbLogin']);
+			unset($_SESSION['tb_id']);
+			session_destroy();
+			header("location:".BASE_URL."home");
+
+		}else{
+
+			$results = [];
+			$dadosBanco = new Requestapi();
+	
+			$results['info'] = $dadosBanco->getRelatorioPncp();
+			
+			
+
+			$this->loadTemplate("home", $results);
+
+		}
+		
+	}
+
+
+	private function fetchDataFromApi($url) {
+        $ch = curl_init();
+        curl_setopt($ch, CURLOPT_URL, $url);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 5); // Tempo limite de 10s para evitar travamentos
+        
+        $response = curl_exec($ch);
+        curl_close($ch);
+        
+        return json_decode($response, true);
+    }
+
+
+	public function getContratos($dataFinal, $modalidade, $pagina) {
+	
+			$url = "https://pncp.gov.br/api/consulta/v1/contratacoes/proposta?dataFinal=$dataFinal&codigoModalidadeContratacao=$modalidade&idUsuario=3&pagina=$pagina&tamanhoPagina=30";
+		
+			//sleep(1);
+
+			return $this->fetchDataFromApi($url);
+
+		//print_r($contrato);
+		//return $contrato;
+		
+    }
+
+	public function getItensCompra($cnpj, $sequencialCompra, $tipo){
+      $multiCurl = [];
+        $resultados = [];
+        $mh = curl_multi_init();
+
+	        // Criar requisições para todos os contratos simultaneamente
+        foreach ($cnpj as $index => $cnpjs) {
+             $sequencialCompras = $sequencialCompra[$index];
+              $url = "https://pncp.gov.br/api/pncp/v1/orgaos/$cnpjs/compras/2025/$sequencialCompras/itens?pagina=1&tamanhoPagina=10";
+
+            $multiCurl[$index] = curl_init();
+            curl_setopt($multiCurl[$index], CURLOPT_URL, $url);
+            curl_setopt($multiCurl[$index], CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($multiCurl[$index], CURLOPT_TIMEOUT, 10);
+            curl_multi_add_handle($mh, $multiCurl[$index]);
+        }
+
+        // Executar todas as requisições simultaneamente
+        $running = null;
+        do {
+            curl_multi_exec($mh, $running);
+        } while ($running);
+
+        // Coletar as respostas
+        foreach ($multiCurl as $index => $ch) {
+            $response = curl_multi_getcontent($ch);
+            $resultados[$index] = json_decode($response, true);
+            curl_multi_remove_handle($mh, $ch);
+            curl_close($ch);
+
+        }
+		$material = [];
+		foreach($resultados as $item){
+			if($item['status'] != 404 && $item[0]['materialOuServico'] === $tipo){
+				$material[] = $item;
+			}
+		}
+
+        curl_multi_close($mh);
+		
+
+
+
+		// echo "<pre>";
+		//print_r($material);
+        return $material;
+	    // echo "</pre>";
+
+		
+	}
+
+    public function getAllData($dataFinal, $modalidade, $pagina, $tipo){
+
+		
+        	$firstApiResponse = $this->getContratos($dataFinal, $modalidade, $pagina);
+
+	
+        	$results = [];
+
+			if (!empty($firstApiResponse['data'])) {
+				$cnpjs = [];
+				$sequenciais = [];
+
+				foreach ($firstApiResponse['data'] as $contrato) {
+					$cnpj = $contrato['orgaoEntidade']['cnpj'] ?? '';
+					$sequencialCompra = $contrato['sequencialCompra'] ?? '';
+
+					if (!empty($cnpj) && !empty($sequencialCompra)) {
+						$cnpjs[] = $cnpj;
+						$sequenciais[] = $sequencialCompra;
+					}
+				}
+				
+				
+
+				//Chamar a API de itens em paralelo
+				$itensRespostas = $this->getItensCompra($cnpjs, $sequenciais, $tipo);
+
+				foreach ($firstApiResponse['data'] as $contrato) {
+					$dataEncerramentoProposta = $contrato['dataEncerramentoProposta'] ?? '';
+					$dataEncPro = str_replace("-", "/", $dataEncerramentoProposta);
+					$dataEncerramentoProposta  = date('Ymd', strtotime($dataEncPro));
+
+					if($dataEncerramentoProposta === $dataFinal){
+
+						$results[] = [
+							'contrato' => $contrato,
+							'itens' => $itensRespostas
+						];
+
+					}
+				}
+			}
+		
+		
+		// echo "<pre>";
+		// print_r($results);
+       return $results;
+	  //echo "</pre>";
+    
+		
+	}
+
+	public function selectDados(){
+
+		$fonte 		  = $_POST['fonte'];
+		$tipo  		  = $_POST['tipo'];
+		$dataIn  	  = str_replace("/", "-", $_POST["dataInicial"]);
+		$dataInicial  = date('Ymd', strtotime($dataIn));
+		$dataFin  	  = str_replace("/", "-", $_POST["dataFinal"]);
+		$dataFinal 	  = date('Ymd', strtotime($dataFin));
+		$modalidade   = $_POST['modalidade'];
+		$horaAtual = date('H:i');
+
+
+		$dados = array();
+		// Monta a URL da primeira API
+		//Buscar o tamanho da pagina para iniciar o loop
+		$curl = curl_init();
+		curl_setopt_array($curl, [
+		CURLOPT_RETURNTRANSFER => 1,
+		CURLOPT_URL => 'https://pncp.gov.br/api/consulta/v1/contratacoes/proposta?dataFinal='.$dataFinal.'&codigoModalidadeContratacao='.$modalidade.'&idUsuario=3&pagina=1&tamanhoPagina=10'
+		]);
+		$response = curl_exec($curl);		
+		$dados = json_decode($response, false);
+		curl_close($curl);
+		
+		$totalPaginas = $dados->totalPaginas; 
+
+		$results = [];
+
+		for ($pagina = 1; $pagina <= $totalPaginas; $pagina++) {
+	
+		$results[] = $this->getAllData($dataFinal, $modalidade, $pagina, $tipo);
+		
+		}
+
+		$this->loadTemplate('telaPncp', ['data' => $results]);
+		// Exibir os resultados
+		  //echo "<pre>";
+		//print_r($results);
+		 // echo "</pre>";
+
+	}
+
+
+}
