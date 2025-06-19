@@ -105,20 +105,25 @@
                 $arq = json_decode($response, false);
                 ?>
 
+              <hr>
+
+              <div class="d-flex flex-row bd-highlight mb-3">
+                  <?php foreach ($arq as $download): ?>
+                      <div class="col-sm-auto style-font"><strong>Documento:</strong>
+                          <a class="btn btn-success" data-bs-toggle="collapse" href="<?php echo $download->url; ?>" role="button" aria-expanded="false" aria-controls="collapseExample"><?php echo $download->titulo; ?></a>
+                      </div>
+                  <?php endforeach; ?>
+              </div>
 
               <hr>
               <div class="d-flex flex-row bd-highlight mb-3">
                   <div class="col-sm-auto style-font"><strong>Valor Total Estimado:</strong>
                       <div class="style-font-valor">
-                          <div style="background-color: #191970; color: #FFF; font-size: 1.2rem"><?php echo "R$ " . number_format($k['valorTotalEstimado'], 2, ",", "."); ?></div>
+                          <div class="alert alert-danger" role="alert" style="font-size: 1.2rem"><?php echo "R$ " . number_format($k['valorTotalEstimado'], 2, ",", "."); ?></div>
                       </div>
                   </div>
-                  <?php foreach ($arq as $download): ?>
-                      <div class="col-sm-auto style-font"><strong>&nbsp;&nbsp;&nbsp;&nbsp;Documento:</strong>
-                          <a class="btn btn-success" data-bs-toggle="collapse" href="<?php echo $download->url; ?>" role="button" aria-expanded="false" aria-controls="collapseExample"><?php echo $download->titulo; ?></a>
-                      </div>
-                  <?php endforeach; ?>
               </div>
+
 
 
 
